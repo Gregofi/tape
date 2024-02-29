@@ -1,9 +1,0 @@
-#!/bin/sh
-
-files="/etc"
-# repository="$TAPE_REPO rclone:remote:path"
-repository="$TAPE_REPO /tmp/tape"
-
-before() {
-    echo "Running before script"
-}

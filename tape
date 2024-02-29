@@ -172,10 +172,8 @@ backup() {
 
     if [ "$script_name" = "*" ]; then
         log "Running all backup scripts at $TAPE_SCRIPTS_DIR"
-    else
-        if [ ! -f "$script_name" ]; then
-            fail "backup script does not exist: $script_name"
-        fi
+    elif [ ! -f "$TAPE_SCRIPTS_DIR/$script_name" ]; then
+        fail "backup script $script_name does not exists"
     fi
 
     for script in $TAPE_SCRIPTS_DIR/$script_name; do

@@ -1,0 +1,8 @@
+#!/bin/sh
+
+files="/root"
+repository="/tmp/tape rclone:remote:/var/lib/tape"
+
+before() {
+    echo "Running backup home script"
+}
