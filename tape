@@ -39,6 +39,7 @@ error() {
 
 fail() {
     error "$1" >&2
+    send_email "Backup failed!" "$errors"
     exit 1
 }
 
@@ -132,8 +133,9 @@ process_args() {
 
                 exit 0
             ;;
-            report) 
-                report;
+            report)
+                local repo="${2:-*}" 
+                report "$repo";
 
                 exit 0
             ;;
@@ -180,12 +182,25 @@ backup() {
         log "Running $script"
 
         if [ ! -x "$script" ]; then
-            log "Skipping $(basename "$script")"
+            log "Skipping not executable $(basename "$script")"
             continue
         fi
 
         run_script "$script"
     done
+
+    local message
+    message=$(report "*") || fail "error: report failed"
+    
+    local repositories_list
+    repositories_list="$(collect_repositories)"
+
+    for location in $repositories_list; do
+        restic forget --repo "$location" --keep-last $TAPE_KEEP_LAST_N $restic_flags --prune \
+            || fail "error: restic forget failed"
+    done
+
+    send_email "$message" "$errors"
 }
 
 run_script() {
@@ -230,9 +245,81 @@ run_script() {
 }
 
 report() {
-    backup_details=$(du -hs "$TAPE_REPO")
+    local repositories_list
+    repositories_list="$(collect_repositories "$1")"
 
-    echo "Backup details: $backup_details"
+    local stats=""
+    for location in $repositories_list; do
+        local newline=""
+        [ -z "$stats" ] || newline="\n\n"
+        stats="$stats$newline"$({
+            printf "%s: " "$location"
+            restic stats --quiet --repo "$location" $restic_flags \
+                || fail "error: restic report failed"
+        })
+    done
+
+    # Use printf to ensure the \n is interpreted as a newline
+    printf "$stats\n"
+}
+
+### Utils ###
+
+# Collects all repositories from the scripts
+# 
+# PARAMS
+#   $1  empty for all, or repository name
+collect_repositories() {
+    local repositories_list="${1:-*}"
+
+    if [ "$repositories_list" = "*" ]; then
+        repositories_list="$TAPE_REPO"
+
+        # Aggregates all repositories
+        for script in "$TAPE_SCRIPTS_DIR"/*; do
+            . "$script"
+
+            # Sourced from script, or default to TAPE_REPO
+            local repository="${repository-$TAPE_REPO}"
+            local collected_repositories=""
+
+            for location in $repository; do
+                local found=false
+                for known_location in $repositories_list; do
+                    if [ "$location" = "$known_location" ]; then
+                        found=true
+                    fi
+                done
+
+                if ! $found; then
+                    collected_repositories="$collected_repositories $location"
+                fi
+            done
+
+            repositories_list="$repositories_list $collected_repositories"
+        done
+    fi
+
+    echo "$repositories_list"
+}
+
+send_email() {
+    local body="$1"
+    local errors="${2:-}"
+
+    local subject="Tape backup report"
+    if [ -n "$errors" ]; then
+        subject="[Attention required] $subject"
+        body="$body\n\n$errors"
+    fi
+
+    local address="${TAPE_REPORT_EMAIL:-}"
+    if [ -n "$address" ] && command -v mail > /dev/null; then
+        printf "$body\n" | mail -s "$subject" "$address" \
+            && log "Report sent to $address"
+    else
+        printf "$body\n"
+    fi
 }
 
 ### Main ###

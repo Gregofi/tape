@@ -3,10 +3,6 @@ Simple backup automation tool for your Linux services.
 
 > **Note:** This tool is still in development, use at your own risk!
 
-Desing decisions:
-- One local backup, optional remote backups.
-- You can skip the local backup and only use remote backups.
-
 ## Installation
 Install the required dependencies:
 - restic
