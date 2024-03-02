@@ -31,7 +31,7 @@ tape -v backup
 sleep 5
 
 echo "=== Backups sysconfig only ==="
-tape -v backup sysconfig 
+tape -v -n backup sysconfig 
 
 echo "=== Report ==="
 tape -v report

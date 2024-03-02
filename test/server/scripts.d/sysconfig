@@ -6,3 +6,7 @@ repository="$TAPE_REPO /tmp/tape"
 before() {
     echo "Running sysconfig script"
 }
+
+after() {
+    echo "Finished sysconfig script"
+}

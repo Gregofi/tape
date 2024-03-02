@@ -5,3 +5,7 @@ files="/etc"
 before() {
     echo "Running backup sysconfig script"
 }
+
+after() {
+    echo "Done"
+}

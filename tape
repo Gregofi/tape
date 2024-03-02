@@ -5,7 +5,6 @@
 # set -o errexit
 set -o nounset
 
-
 ### Configuration ###
 TAPE_CONF="/etc/tape/tape.conf"
 TAPE_SCRIPTS_DIR="/etc/tape/scripts.d"
@@ -16,9 +15,7 @@ TAPE_SCRIPTS_DIR="/etc/tape/scripts.d"
 ### Arguments ###
 
 dry_run=false
-restic_flags=""
-rclone_flags=""
-
+restic_dry_run=""
 verbose=false
 
 ### Error handling and logging ###
@@ -89,8 +86,6 @@ print_usage() {
 }
 
 process_flags() {
-    restic_flags="--password-file $TAPE_KEY_PATH"
-
     for flag in "$@"; do
         case "$flag" in
             -h|--help)
@@ -99,7 +94,7 @@ process_flags() {
                 ;;
             -n|--dry-run)
                 dry_run=true
-                restic_flags="$restic_flags --dry-run"
+                restic_dry_run="--dry-run"
                 ;;
             -v|--verbose)
                 verbose=true
@@ -162,7 +157,7 @@ init() {
     fi
 
     if ! $dry_run; then
-        restic init --repo "$repo" $restic_flags \
+        restic init $restic_dry_run --password-file $TAPE_KEY_PATH --repo "$repo" \
             || fail "error: restic init failed"
     fi
 
@@ -196,34 +191,69 @@ backup() {
     repositories_list="$(collect_repositories)"
 
     for location in $repositories_list; do
-        restic forget --repo "$location" --keep-last $TAPE_KEEP_LAST_N $restic_flags --prune \
+        restic forget $restic_dry_run --password-file $TAPE_KEY_PATH --repo "$location" --keep-last $TAPE_KEEP_LAST_N --prune \
             || fail "error: restic forget failed"
     done
 
     send_email "$message" "$errors"
+
+    if [ -n "$errors" ]; then
+        return 1
+    fi
 }
 
 run_script() {
     local script="$1"
 
+    before() { true; }
+    after() { true; }
+
+    . "$script"
+
     out_file="$(mktemp)"
     {
-        before() { true; }
-
-        [ $dry_run = true ] && set -v
+        [ $dry_run = true ] && set -v 
         [ $dry_run = false ] && set -x
-        
-        . "$script" && before
+
+        before
         result=$?
         
         [ $dry_run = false ] && set +x
         [ $dry_run = true ] && set +v
 
-    } > "$out_file" 2>&1
+    } >> "$out_file" 2>&1
     out="$(cat "$out_file")"
-    rm -f "$out_file"
 
     [ $dry_run = true ] && echo "$script"
+
+    files=${files:-""}
+    repository=${repository:-"$TAPE_REPO"}
+    
+    log "Backing up $files to $repository"
+
+    local exclude="${TAPE_EXCLUDE:-}"
+    local exclude_flags=""
+    for item in $exclude; do
+        exclude_flags="$exclude_flags --exclude $item"
+    done
+
+    for location in $repository; do
+        restic backup $restic_dry_run --password-file $TAPE_KEY_PATH --repo "$location" $exclude_flags "$files" \
+            || fail "error: restic failed"
+    done
+
+    {
+        [ $dry_run = true ] && set -v
+        [ $dry_run = false ] && set -x
+        
+        after
+        result=$?
+        
+        [ $dry_run = false ] && set +x
+        [ $dry_run = true ] && set +v
+
+    } >> "$out_file" 2>&1
+    out="$(cat "$out_file")"
 
     if [ ! $result -eq 0 ]; then
         error "$out"
@@ -232,22 +262,7 @@ run_script() {
         return $result
     fi
 
-    files=${files:-""}
-    repository=${repository:-"$TAPE_REPO"}
-    
-    log "Backing up $files to $repository"
-
-    local flags="$restic_flags"
-
-    local exclude="${TAPE_EXCLUDE:-}"
-    for item in $exclude; do
-        flags="$flags --exclude $item"
-    done
-
-    for location in $repository; do
-        restic backup --repo "$location" $flags "$files" \
-            || fail "error: restic failed"
-    done
+    rm -f "$out_file"
 }
 
 report() {
@@ -260,8 +275,8 @@ report() {
         [ -z "$stats" ] || newline="\n\n"
         stats="$stats$newline"$({
             printf "%s: " "$location"
-            restic stats --quiet --repo "$location" $restic_flags \
-                || fail "error: restic report failed"
+            restic stats --password-file $TAPE_KEY_PATH --quiet --repo "$location" \
+                || fail "error: restic stats failed"
         })
     done
 
