@@ -235,11 +235,17 @@ run_script() {
     files=${files:-""}
     repository=${repository:-"$TAPE_REPO"}
     
-    log "Backing up $files"
-    log "to $repository"
+    log "Backing up $files to $repository"
+
+    local flags="$restic_flags"
+
+    local exclude="${TAPE_EXCLUDE:-}"
+    for item in $exclude; do
+        flags="$flags --exclude $item"
+    done
 
     for location in $repository; do
-        restic backup --repo "$location" $restic_flags "$files" \
+        restic backup --repo "$location" $flags "$files" \
             || fail "error: restic failed"
     done
 }
