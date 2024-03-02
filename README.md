@@ -22,5 +22,31 @@ Before running, you need to create a key for enryption at `/etc/tape/key` or in 
 
 Then you can run the following command to backup your services.
 ```shell
+# Create default backup repository, 
+# as specified in tape.conf
 tape init
+
+# Create backup repository at the specified location.
+tape init /path/to/backup/repository
+
+# Create remote backup repository using rclone.
+tape init rclone:remote:path
+```
+
+Write backup script for your services and run the following command to backup your services.
+```shell
+#!/bin/sh
+
+files="/etc/ /var/www/ /var/lib/mysql/"
+
+# When not specified, the backup repository is the default one. 
+# repository="rclone:remote:path"
+
+before() {
+    service my-service stop
+}
+
+after() {
+    service my-service start
+}
 ```

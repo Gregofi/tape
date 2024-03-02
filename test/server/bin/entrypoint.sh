@@ -9,28 +9,29 @@ SFTP_PASS=password
 rclone config create remote sftp host $SFTP_HOST user $SFTP_USER pass $SFTP_PASS
 rclone ls remote:/var/lib/tape
 
-# install tape
+# Install tape
 cd /opt/tape && make install && cp test/server/scripts.d/* /etc/tape/scripts.d && cd -
 echo "password" > /etc/tape/key
 
-# mock mail command
+# Mock mail command
 printf '#!/bin/sh\necho $@\n' > /usr/bin/mail
 chmod +x /usr/bin/mail
 
-echo "=== Inits default repository in /var/lib/tape ==="
+# Tests
+echo "=== Test Init default repository in /var/lib/tape ==="
 tape -v init
 
-echo "=== Inits repository in /tmp/tape ==="
+echo "=== Test Init repository in /tmp/tape ==="
 tape -v init /tmp/tape
 
-echo "=== Inits repository in remote:/var/lib/tape ==="
+echo "=== Test Inits repository in remote:/var/lib/tape ==="
 tape -v init rclone:remote:/var/lib/tape
 
-echo "=== Backups all ==="
+echo "=== Test Backup all ==="
 tape -v backup
-sleep 5
 
-echo "=== Backups sysconfig only ==="
+echo "=== Test Backup sysconfig only ==="
+echo "Hello, World!" >> /etc/motd
 tape -v -n backup sysconfig 
 
 echo "=== Report ==="
