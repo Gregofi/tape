@@ -238,8 +238,8 @@ run_script() {
     done
 
     for location in $repository; do
-        restic backup $restic_dry_run --password-file $TAPE_KEY_PATH --repo "$location" $exclude_flags "$files" \
-            || fail "error: restic failed"
+        restic backup $restic_dry_run --password-file $TAPE_KEY_PATH --repo "$location" $exclude_flags $files \
+            || fail "error: restic backup failed"
     done
 
     {
@@ -346,7 +346,8 @@ send_email() {
 ### Main ###
 log "Running tape"
 
+process_flags "$@"
+
 check_config
 
-process_flags "$@"
 process_args "$@"

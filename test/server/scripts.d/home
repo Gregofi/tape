@@ -1,6 +1,6 @@
 #!/bin/sh
 
-files="/root"
+files="/root /home"
 repository="/tmp/tape rclone:remote:/var/lib/tape"
 
 before() {
