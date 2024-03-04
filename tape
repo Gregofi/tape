@@ -30,13 +30,22 @@ log() {
 
 error() {
     what=$1
-    errors="$errors\n$what"
+    errors="$errors
+$what"
+
     echo "$what" >&2
 }
 
 fail() {
-    error "$1" >&2
-    send_email "Backup failed!" "$errors"
+    local message="$1"
+    local should_send_email="${2:-true}"
+
+    error "$message" >&2
+
+    if [ "$should_send_email" = true ]; then
+        send_email "Backup failed!" "$errors"
+    fi
+
     exit 1
 }
 
@@ -143,22 +152,22 @@ process_args() {
 ### Commands ###
 
 init() {
-    local repo=$1
+    local repo="$1"
 
     echo "Initializing the backup repository at $repo"
 
     # Cannot use --dry-run here.
-    restic cat config --repo "$repo" --password-file "$TAPE_KEY_PATH" 2> /dev/null
+    restic cat config --repo "$repo" --password-file "$TAPE_KEY_PATH" > /dev/null 2>&1
     result=$?
 
     if [ $result -eq 0 ]; then
-        error "error: backup repository already initialized"
+        error "error: backup repository $repo already initialized"
         return 1
     fi
 
     if ! $dry_run; then
-        restic init $restic_dry_run --password-file $TAPE_KEY_PATH --repo "$repo" \
-            || fail "error: restic init failed"
+        restic init $restic_dry_run --password-file "$TAPE_KEY_PATH" --repo "$repo" \
+            || fail "error: restic init failed" false
     fi
 
     echo "Backup repository initialized"
@@ -166,6 +175,8 @@ init() {
 
 backup() {
     script_name=$1
+
+    start=$(date +%s)
 
     if [ "$script_name" = "*" ]; then
         log "Running all backup scripts at $TAPE_SCRIPTS_DIR"
@@ -183,17 +194,17 @@ backup() {
 
         run_script "$script"
     done
-
-    local message
-    message=$(report "*") || fail "error: report failed"
     
-    local repositories_list
-    repositories_list="$(collect_repositories)"
+    local time_string="unknown"
+    time_string=$(duration_string "$start")
 
-    for location in $repositories_list; do
-        restic forget $restic_dry_run --password-file $TAPE_KEY_PATH --repo "$location" --keep-last $TAPE_KEEP_LAST_N --prune \
-            || fail "error: restic forget failed"
-    done
+    local message="Backup complete in $time_string."
+    message="$message
+
+$(report "*")" \
+        || fail "error: report failed"
+
+    forget_backups
 
     send_email "$message" "$errors"
 
@@ -221,7 +232,7 @@ run_script() {
         [ $dry_run = false ] && set +x
         [ $dry_run = true ] && set +v
 
-    } >> "$out_file" 2>&1
+    } > "$out_file" 2>&1
     out="$(cat "$out_file")"
 
     [ $dry_run = true ] && echo "$script"
@@ -238,8 +249,15 @@ run_script() {
     done
 
     for location in $repository; do
-        restic backup $restic_dry_run --password-file $TAPE_KEY_PATH --repo "$location" $exclude_flags $files \
-            || fail "error: restic backup failed"
+        if [ -z "$files" ]; then
+            # no files to backup
+            break
+        fi
+
+        restic backup $restic_dry_run \
+            --password-file "$TAPE_KEY_PATH" \
+            --repo "$location" $exclude_flags $files \
+            || error "error: $(basename "$script"): restic backup $files failed"
     done
 
     {
@@ -254,34 +272,36 @@ run_script() {
 
     } >> "$out_file" 2>&1
     out="$(cat "$out_file")"
+    rm -f "$out_file"
 
     if [ ! $result -eq 0 ]; then
+        error "error: script $(basename "$script") failed"
         error "$out"
-        error "error: $(basename "$script") failed"
 
         return $result
     fi
-
-    rm -f "$out_file"
 }
 
+# PARAMS
+#   $1  "*" for all, or repository name
 report() {
     local repositories_list
     repositories_list="$(collect_repositories "$1")"
 
-    local stats=""
+    local first_run=true
     for location in $repositories_list; do
-        local newline=""
-        [ -z "$stats" ] || newline="\n\n"
-        stats="$stats$newline"$({
-            printf "%s: " "$location"
-            restic stats --password-file $TAPE_KEY_PATH --quiet --repo "$location" \
-                || fail "error: restic stats failed"
-        })
-    done
+        if ! $first_run; then
+            echo ""
+        fi
+        printf "%s" "Backup stats for $location: "
+        restic stats --mode raw-data \
+            --password-file "$TAPE_KEY_PATH" \
+            --repo "$location" \
+            --quiet \
+            || fail "error: could not get stats for $location"
 
-    # Use printf to ensure the \n is interpreted as a newline
-    printf "$stats\n"
+        first_run=false
+    done
 }
 
 ### Utils ###
@@ -324,6 +344,20 @@ collect_repositories() {
     echo "$repositories_list"
 }
 
+forget_backups() {
+    local repositories_list
+    repositories_list="$(collect_repositories)"
+
+    for location in $repositories_list; do
+        restic forget $restic_dry_run \
+            --password-file "$TAPE_KEY_PATH" \
+            --repo "$location" \
+            --keep-last "$TAPE_KEEP_LAST_N" \
+            --prune \
+            || error "error: restic forget failed for $location"
+    done
+}
+
 send_email() {
     local body="$1"
     local errors="${2:-}"
@@ -331,16 +365,29 @@ send_email() {
     local subject="Tape backup report"
     if [ -n "$errors" ]; then
         subject="[Attention required] $subject"
-        body="$body\n\n$errors"
+        body="$body
+$errors"
     fi
 
     local address="${TAPE_REPORT_EMAIL:-}"
     if [ -n "$address" ] && command -v mail > /dev/null; then
-        printf "$body\n" | mail -s "$subject" "$address" \
+        echo "$body" | mail -s "$subject" "$address" \
             && log "Report sent to $address"
     else
-        printf "$body\n"
+        echo "$body"
     fi
+}
+
+duration_string() {
+    local start="$1"
+    end=$(date +%s)
+
+    local runtime=$((end-start))
+    local hours=$((runtime / 3600))
+    local minutes=$(( (runtime % 3600) / 60 )) 
+    local seconds=$(( (runtime % 3600) % 60 ))
+    
+    printf "%02d:%02d:%02d" $hours $minutes $seconds
 }
 
 ### Main ###

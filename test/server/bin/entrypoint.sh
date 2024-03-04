@@ -14,7 +14,7 @@ cd /opt/tape && make install && cp test/server/scripts.d/* /etc/tape/scripts.d &
 echo "password" > /etc/tape/key
 
 # Mock mail command
-printf '#!/bin/sh\necho $@\n' > /usr/bin/mail
+printf '#!/bin/sh\necho "mail: " $@\n' > /usr/bin/mail
 chmod +x /usr/bin/mail
 
 # Tests
@@ -28,7 +28,7 @@ echo "=== Test Inits repository in remote:/var/lib/tape ==="
 tape -v init rclone:remote:/var/lib/tape
 
 echo "=== Test Backup all ==="
-tape -v backup
+tape -v backup || true  # Return 1 because fail script failed.
 
 echo "=== Test Backup sysconfig only ==="
 echo "Hello, World!" >> /etc/motd

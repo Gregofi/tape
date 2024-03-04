@@ -1,0 +1,10 @@
+#!/bin/sh
+
+before() {
+    echo "Running fail script"
+}
+
+after() {
+    echo "Finished fail script"
+    return 1
+}
