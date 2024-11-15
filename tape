@@ -38,13 +38,8 @@ $what"
 
 fail() {
     local message="$1"
-    local should_send_email="${2:-true}"
 
     error "$message" >&2
-
-    if [ "$should_send_email" = true ]; then
-        send_email "Backup failed!" "$errors"
-    fi
 
     exit 1
 }
@@ -80,7 +75,7 @@ print_usage() {
     init             Initialize the backup repository
     backup [SCRIPT]  Backup the system using the given script
                      (default: *)
-    report           Report the backup status to \$TAPE_REPORT_EMAIL
+    report           Report the repository status to stdout
   
   Configuration:
     The configuration file is located at $TAPE_CONF. 
@@ -90,7 +85,6 @@ print_usage() {
     TAPE_REPO
     TAPE_EXCLUDE
     TAPE_KEEP_LAST_N
-    TAPE_REPORT_EMAIL
     "
 }
 
@@ -201,16 +195,17 @@ backup() {
     local message="Backup complete in $time_string."
     message="$message
 
-$(report "*")" \
-        || fail "error: report failed"
+    $(report "*")" || fail "error: report failed"
 
-    forget_backups
-
-    send_email "$message" "$errors"
+    if [ -n "${TAPE_KEEP_LAST_N}" ]; then
+        forget_backups
+    fi
 
     if [ -n "$errors" ]; then
         return 1
     fi
+
+    echo
 }
 
 run_script() {
@@ -356,26 +351,6 @@ forget_backups() {
             --prune \
             || error "error: restic forget failed for $location"
     done
-}
-
-send_email() {
-    local body="$1"
-    local errors="${2:-}"
-
-    local subject="Tape backup report"
-    if [ -n "$errors" ]; then
-        subject="[Attention required] $subject"
-        body="$body
-$errors"
-    fi
-
-    local address="${TAPE_REPORT_EMAIL:-}"
-    if [ -n "$address" ] && command -v mail > /dev/null; then
-        echo "$body" | mail -s "$subject" "$address" \
-            && log "Report sent to $address"
-    else
-        echo "$body"
-    fi
 }
 
 duration_string() {
