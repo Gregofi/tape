@@ -1,8 +1,6 @@
 # tape
 Simple backup automation tool for your Linux services.
 
-> **Note:** This tool is still in development, use at your own risk!
-
 ## Installation
 Install the required dependencies:
 - restic
@@ -50,3 +48,8 @@ after() {
     service my-service start
 }
 ```
+
+## Reports
+
+The script itself does not support sending reports via mail.
+You can however use a simple [wrapper](examples/wrapper.sh).
